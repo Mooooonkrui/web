@@ -19,4 +19,4 @@ steps:
       - pnpm turbo deploy
     environment:
       CLOUDFLARE_API_TOKEN:
-        from_secret: cloudflare_api_token
+        from_secret: CLOUDFLARE_API_TOKEN
