@@ -3,22 +3,10 @@ when:
     branch: main
 
 steps:
-  install:
+  build:
     image: node:20
     commands:
       - corepack enable
       - corepack prepare pnpm@latest --activate
-      - pnpm install
-
-  build:
-    image: node:20
-    commands:
+      - pnpm install --frozen-lockfile
       - pnpm turbo build
-
-  deploy:
-    image: node:20
-    environment:
-      CLOUDFLARE_API_TOKEN:
-        from_secret: cloudflare_api_token
-    commands:
-      - ./scripts/ci-deploy.sh

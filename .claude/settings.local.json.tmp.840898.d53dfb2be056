@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -m 'Initial monorepo setup: 6 sites with pnpm + turbo + wrangler *)",
+      "Bash(git rm *)",
+      "Bash(git commit --amend -m 'Initial monorepo setup: 6 sites with pnpm + turbo + wrangler *)",
+      "Bash(git push *)",
+      "Bash(git remote *)",
+      "Bash(GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new\" git push *)",
+      "Bash(pnpm up *)",
+      "Bash(pnpm add *)",
+      "Bash(pnpm wrangler *)",
+      "Bash(curl *)",
+      "Bash(git commit -m 'chore: upgrade wrangler to v4 *)",
+      "Bash(python3 -c ' *)",
+      "Bash(git commit -m 'refactor: switch to CF Pages native git integration *)"
+    ]
+  }
+}
