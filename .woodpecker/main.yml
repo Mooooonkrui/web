@@ -10,3 +10,13 @@ steps:
       - corepack prepare pnpm@latest --activate
       - pnpm install --frozen-lockfile
       - pnpm turbo build
+
+  deploy:
+    image: node:20
+    commands:
+      - corepack enable
+      - corepack prepare pnpm@latest --activate
+      - pnpm turbo deploy
+    environment:
+      CLOUDFLARE_API_TOKEN:
+        from_secret: cloudflare_api_token
