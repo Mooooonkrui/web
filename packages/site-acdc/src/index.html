@@ -1,15 +1,318 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AC/DC Works</title>
+  <title>AC/DC · Qalculate!</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main>
-    <h1>⚡🎵 AC/DC Works</h1>
-    <p>Coming soon...</p>
-  </main>
+  <div id="app">
+    <header>
+      <span class="logo">⚡ AC/DC</span>
+      <span class="subtitle">Qalculate! — a multi-purpose calculator in your browser</span>
+    </header>
+
+    <div id="terminal-wrapper">
+      <div id="terminal">
+        <div id="output"></div>
+        <div id="input-row">
+          <span class="prompt">&gt;</span>
+          <div id="input" contenteditable spellcheck="false" autofocus></div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <span>Powered by <a href="https://github.com/stephtr/libqalculate-wasm" target="_blank" rel="noopener">libqalculate-wasm</a></span>
+      <span class="sep">·</span>
+      <span><a href="https://qalculate.github.io/manual/" target="_blank" rel="noopener">Manual</a></span>
+      <span class="sep">·</span>
+      <button id="clear-btn" class="link-btn">Clear</button>
+    </footer>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/libqalculate-wasm@0.0.6/libqalculate.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      var terminal = document.getElementById('terminal');
+      var output   = document.getElementById('output');
+      var input    = document.getElementById('input');
+      var clearBtn = document.getElementById('clear-btn');
+
+      // ---- State ----
+      var history = [];
+      var historyIndex = -1;
+      var busy = false;
+      var api = null;   // qalculate API handle
+
+      // ---- Constants ----
+      var WASM_URL = 'https://cdn.jsdelivr.net/npm/libqalculate-wasm@0.0.6/libqalculate.wasm';
+
+      // ---- Terminal output ----
+      function write(text, cls) {
+        var line = document.createElement('div');
+        line.className = 'line' + (cls ? ' ' + cls : '');
+        line.textContent = text;
+        output.appendChild(line);
+        scrollToBottom();
+      }
+
+      function writePrompt(expr) {
+        var line = document.createElement('div');
+        line.className = 'line input-line';
+        line.innerHTML = '<span class="prompt">&gt;</span> ' + escapeHtml(expr);
+        output.appendChild(line);
+        scrollToBottom();
+      }
+
+      function writeResult(text) {
+        if (!text) return;
+        var line = document.createElement('div');
+        line.className = 'line result-line';
+        // Preserve trailing whitespace for alignment (qalc outputs aligned text)
+        line.textContent = text;
+        output.appendChild(line);
+        scrollToBottom();
+      }
+
+      function writeError(text) {
+        var line = document.createElement('div');
+        line.className = 'line error-line';
+        line.textContent = text;
+        output.appendChild(line);
+        scrollToBottom();
+      }
+
+      function writeSystem(text) {
+        var line = document.createElement('div');
+        line.className = 'line system-line';
+        line.textContent = text;
+        output.appendChild(line);
+        scrollToBottom();
+      }
+
+      function scrollToBottom() {
+        terminal.scrollTop = terminal.scrollHeight;
+      }
+
+      function escapeHtml(s) {
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+      }
+
+      // ---- Banner ----
+      function showBanner() {
+        writeSystem('╭──────────────────────────────────────────╮');
+        writeSystem('│  ⚡ AC/DC · Qalculate! WASM              │');
+        writeSystem('│  A multi-purpose calculator in your      │');
+        writeSystem('│  browser, powered by libqalculate-wasm.  │');
+        writeSystem('╰──────────────────────────────────────────╯');
+        writeSystem('');
+        writeSystem('Type any expression and press Enter.');
+        writeSystem('  Examples:  2 + 2    sin(pi/4)    integrate(x^2, x)');
+        writeSystem('  Units:     5 kg to lb    100 °F to °C');
+        writeSystem('  Variables: x = 42    x^2 + 1');
+        writeSystem('  Special:   clear()   help()   status()');
+        writeSystem('');
+      }
+
+      // ---- Help ----
+      function showHelp() {
+        writeSystem('');
+        writeSystem('─── Commands ──────────────────────────────');
+        writeSystem('  clear()       — clear screen');
+        writeSystem('  help()        — this help');
+        writeSystem('  status()      — show calculator status');
+        writeSystem('');
+        writeSystem('─── Examples ──────────────────────────────');
+        writeSystem('  Arithmetic:   2 + 2 * 3');
+        writeSystem('  Fractions:    1/3 + 1/4');
+        writeSystem('  Trig:         sin(45 deg)    cos(pi/3)');
+        writeSystem('  Calculus:     integrate(x^2, x, 0, 1)');
+        writeSystem('                derivative(sin(x), x)');
+        writeSystem('  Units:        5 kg to lb');
+        writeSystem('                100 °F to °C');
+        writeSystem('  Currency:     100 EUR to USD');
+        writeSystem('  Logic:        true && false    a ∨ b');
+        writeSystem('  Polynomials:  x^2 - 5x + 6 = 0');
+        writeSystem('  Vectors:      [1,2,3] . [4,5,6]');
+        writeSystem('  Constants:    pi    e    c    hbar');
+        writeSystem('');
+        writeSystem('For full documentation: https://qalculate.github.io/manual/');
+        writeSystem('');
+      }
+
+      // ---- Evaluate with Qalculate ----
+      function evaluate(expr) {
+        if (!api) {
+          writeError('(qalculate engine not ready — still loading?)');
+          return;
+        }
+
+        var trimmed = expr.trim();
+
+        // Built-in commands
+        if (trimmed === 'help()' || trimmed === 'help') {
+          showHelp();
+          return;
+        }
+        if (trimmed === 'clear()' || trimmed === 'clear') {
+          clearScreen();
+          showBanner();
+          return;
+        }
+        if (trimmed === 'status()' || trimmed === 'status') {
+          writeResult('(qalculate engine: loaded)');
+          return;
+        }
+        if (trimmed === '') return;
+
+        try {
+          // Timeout: 10 seconds for complex calculations
+          var result = api.calculate(trimmed, 10000, 0);
+          if (result && result.output !== undefined) {
+            var out = result.output;
+            // Split multi-line output
+            var lines = out.split('\n');
+            for (var i = 0; i < lines.length; i++) {
+              writeResult(lines[i]);
+            }
+          } else {
+            writeResult(String(result));
+          }
+        } catch (e) {
+          writeError(e.message || String(e));
+        }
+      }
+
+      // ---- Clear screen ----
+      function clearScreen() {
+        output.innerHTML = '';
+      }
+
+      // ---- Input handling ----
+      function processInput() {
+        if (busy) return;
+        var text = input.textContent.trim();
+        if (!text) return;
+
+        input.textContent = '';
+        history.push(text);
+        historyIndex = history.length;
+
+        writePrompt(text);
+        busy = true;
+        try {
+          evaluate(text);
+        } catch (e) {
+          writeError('Internal error: ' + (e.message || e));
+        }
+        busy = false;
+        input.focus();
+      }
+
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          processInput();
+          return;
+        }
+
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (history.length === 0) return;
+          historyIndex = Math.max(0, historyIndex - 1);
+          input.textContent = history[historyIndex];
+          moveCursorToEnd(input);
+          return;
+        }
+
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (historyIndex >= history.length - 1) {
+            historyIndex = history.length;
+            input.textContent = '';
+            return;
+          }
+          historyIndex = Math.min(history.length - 1, historyIndex + 1);
+          input.textContent = history[historyIndex];
+          moveCursorToEnd(input);
+          return;
+        }
+      });
+
+      function moveCursorToEnd(el) {
+        var sel = window.getSelection();
+        var range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+
+      // ---- Focus management ----
+      terminal.addEventListener('click', function () {
+        input.focus();
+      });
+
+      document.addEventListener('keydown', function (e) {
+        // Focus input on any typing (but not in buttons)
+        if (e.target.tagName !== 'BUTTON' && e.target !== input && !e.ctrlKey && !e.metaKey) {
+          input.focus();
+        }
+      });
+
+      // ---- Init Qalculate ----
+      function initQalculate() {
+        writeSystem('Loading Qalculate! engine (~5 MB WASM) …');
+
+        // Module is the Emscripten factory function
+        // It loads the .wasm from the same CDN base as the script
+        var modulePromise = Module({
+          locateFile: function (path, prefix) {
+            return 'https://cdn.jsdelivr.net/npm/libqalculate-wasm@0.0.6/' + path;
+          }
+        });
+
+        modulePromise.then(function (instance) {
+          api = instance;
+          writeSystem('✓ Qalculate! engine ready.');
+          // The banner is shown by the clearing code below
+        }).catch(function (err) {
+          writeError('Failed to load Qalculate! engine: ' + (err.message || err));
+          writeSystem('');
+          writeSystem('Possible issues:');
+          writeSystem('  • The WASM file (~5 MB) failed to download');
+          writeSystem('  • Your browser does not support WebAssembly');
+          writeSystem('  • A network or CORS error occurred');
+          writeSystem('Reload the page to try again.');
+        });
+      }
+
+      // ---- Clear button ----
+      clearBtn.addEventListener('click', function () {
+        clearScreen();
+        showBanner();
+        if (api) {
+          writeSystem('(qalculate engine ready)');
+        } else {
+          writeSystem('(qalculate engine loading...)');
+        }
+        input.focus();
+      });
+
+      // ---- Boot ----
+      showBanner();
+      initQalculate();
+
+      // Focus input on load
+      setTimeout(function () { input.focus(); }, 100);
+
+    })();
+  </script>
 </body>
 </html>
