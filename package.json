@@ -1,0 +1,17 @@
+{
+  "name": "my-domains",
+  "private": true,
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "typecheck": "turbo typecheck",
+    "deploy": "turbo deploy",
+    "clean": "turbo clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^3.100.0"
+  },
+  "packageManager": "pnpm@10.6.0"
+}

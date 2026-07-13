@@ -1,0 +1,33 @@
+# Stellar specific configs
+
+article:
+  type: tech
+
+inject:
+  head:
+    - <link href="https://fonts.font.im/css?family=Merriweather+Sans|Noto+Sans" rel="stylesheet">
+  script:
+
+style:
+  font-family:
+    body: '"Merriweather Sans", "Noto Sans"'
+
+comments:
+  service: giscus
+  beaudar:
+    repo: Mooooonkrui/beaudar
+  giscus:
+    src: "https://giscus.app/client.js"
+    data-repo: Mooooonkrui/giscus
+    data-repo-id: R_kgDOPxAG8g
+    data-category: Announcements
+    data-category-id: DIC_kwDOPxAG8s4Cvgzj
+    data-mapping: pathname
+    data-strict: 0
+    data-reactions-enabled: 1
+    data-emit-metadata: 0
+    data-input-position: bottom
+    data-theme: preferred_color_scheme
+    data-lang: zh-CN
+    data-loading: lazy
+    crossorigin: anonymous

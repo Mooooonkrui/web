@@ -1,0 +1,8 @@
+node_modules/
+.turbo/
+dist/
+public/
+*.log
+.DS_Store
+*.tsbuildinfo
+db.json
