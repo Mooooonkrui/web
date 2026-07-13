@@ -3,13 +3,272 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>E. coli Tech</title>
+  <title>E. coli Linux — 浏览器中的虚拟机</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main>
-    <h1>🧬 E. coli Tech</h1>
-    <p>Coming soon...</p>
-  </main>
+  <div id="app">
+    <header>
+      <h1>🧬 E. coli Linux</h1>
+      <p class="tagline">A minimal Linux virtual machine — running entirely in your browser</p>
+    </header>
+
+    <div id="terminal-container">
+      <div id="loading-overlay">
+        <div class="spinner"></div>
+        <p class="loading-text">Booting Linux kernel…</p>
+        <p class="loading-hint">Downloading ~5 MB VM image · 10–30 seconds on first load</p>
+      </div>
+      <div id="screen_container"></div>
+    </div>
+
+    <div id="info-panel">
+      <div id="quick-help">
+        <span class="help-icon">ℹ️</span>
+        <span>Mount 9p shared folder: <code>mount -t 9p host9p /mnt/9p/</code></span>
+      </div>
+      <details id="readme-section" open>
+        <summary>📖 README — 关于这个虚拟机</summary>
+        <div class="readme-body">
+          <h2>🧬 E. coli Linux</h2>
+          <p>
+            Welcome to <strong>E. coli Linux</strong> — a minimalist Linux virtual machine
+            running entirely in your browser, powered by
+            <a href="https://github.com/copy/v86" target="_blank" rel="noopener">v86</a>
+            (an x86 emulator in WebAssembly).
+          </p>
+          <p>
+            Nothing is sent to any server. Everything runs inside your browser — client-side only.
+          </p>
+
+          <h3>🚀 Getting Started</h3>
+          <p>You are now in the <strong>ash shell</strong> (BusyBox).</p>
+          <p>Mount the 9p shared folder to access files shared from the web page:</p>
+          <pre><code>mkdir -p /mnt/9p
+mount -t 9p host9p /mnt/9p/
+cat /mnt/9p/README.md</code></pre>
+          <p>Edit files in the shared folder — changes are visible on both sides:</p>
+          <pre><code>vi /mnt/9p/README.md</code></pre>
+          <p>或使用 <strong>BusyBox vi</strong> 编辑：<code>vi /mnt/9p/README.md</code></p>
+
+          <h3>⌨️ Keyboard</h3>
+          <table>
+            <tr><td><kbd>Ctrl</kbd> + <kbd>Alt</kbd></td><td>Release mouse from canvas</td></tr>
+            <tr><td><kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Del</kbd></td><td>Reboot VM (or use the Reset button)</td></tr>
+          </table>
+
+          <h3>⚠️ Notes</h3>
+          <ul>
+            <li><strong>No persistent storage</strong> — all changes lost on refresh.</li>
+            <li><strong>No networking</strong> in this build.</li>
+            <li>Use BusyBox <code>vi</code> for editing files.</li>
+          </ul>
+
+          <h3>📋 Tech Specs</h3>
+          <table>
+            <tr><td>Emulator</td><td><a href="https://github.com/copy/v86" target="_blank" rel="noopener">v86</a> (x86 → WASM JIT)</td></tr>
+            <tr><td>Kernel</td><td>Linux 6.8.x (i686, embedded initramfs)</td></tr>
+            <tr><td>Userland</td><td>Buildroot + BusyBox</td></tr>
+            <tr><td>Shell</td><td>ash (BusyBox)</td></tr>
+            <tr><td>Editor</td><td>vi (BusyBox)</td></tr>
+            <tr><td>Shared FS</td><td>9p virtio (host ↔ guest)</td></tr>
+          </table>
+
+          <h3>🔗 Links</h3>
+          <ul>
+            <li><a href="https://github.com/copy/v86" target="_blank" rel="noopener">v86 on GitHub</a></li>
+            <li><a href="https://github.com/mooooonk/web/tree/main/packages/site-ecoli" target="_blank" rel="noopener">E. coli Linux source</a></li>
+          </ul>
+
+          <p class="readme-footer">
+            <em>这份 README 同时也存在于 9p 共享文件系统中，你可以在 VM 内编辑它。</em>
+          </p>
+        </div>
+      </details>
+    </div>
+
+    <footer>
+      <p>
+        Powered by <a href="https://github.com/copy/v86" target="_blank" rel="noopener">v86</a>
+        · <a href="https://github.com/copy/v86/blob/master/LICENSE" target="_blank" rel="noopener">BSD License</a>
+        · <button id="reset-btn" class="link-btn">Reset VM</button>
+      </p>
+    </footer>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/v86@latest/build/libv86.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      // ---- Constants ----
+      const CDN = 'https://k.copy.sh';
+      const BIOS_URL       = CDN + '/seabios.bin';
+      const VGA_BIOS_URL   = CDN + '/vgabios.bin';
+      const BZIMAGE_URL    = CDN + '/buildroot-bzimage.bin';
+
+      var container = document.getElementById('screen_container');
+      var overlay   = document.getElementById('loading-overlay');
+      var resetBtn  = document.getElementById('reset-btn');
+
+      // ---- README.md content for 9p filesystem ----
+      var README_CONTENT = [
+        '# 🧬 E. coli Linux',
+        '',
+        'Welcome to **E. coli Linux** — a minimalist Linux virtual machine running',
+        'entirely in your browser via [v86](https://github.com/copy/v86).',
+        '',
+        '## About',
+        '',
+        'This is a **Buildroot Linux** system (kernel 6.x, i686) with BusyBox,',
+        'running inside a WebAssembly-based x86 emulator. Nothing is sent to any',
+        'server — everything runs client-side in your browser.',
+        '',
+        '## Getting Started',
+        '',
+        'You are now in the **ash shell**. The root filesystem is read-only (it\'s',
+        'an initramfs).',
+        '',
+        '### Mount the 9p shared folder',
+        '',
+        'The host (this web page) shares files via the **9p virtio filesystem**:',
+        '',
+        '```sh',
+        'mkdir -p /mnt/9p',
+        'mount -t 9p host9p /mnt/9p/',
+        '```',
+        '',
+        'Then explore:',
+        '',
+        '```sh',
+        'cat /mnt/9p/README.md     # This file',
+        'vi /mnt/9p/README.md      # Edit it (BusyBox vi)',
+        '```',
+        '',
+        '### Keyboard shortcuts',
+        '',
+        '| Key | Action |',
+        '|-----|--------|',
+        '| Ctrl+Alt | Release mouse from canvas |',
+        '| Ctrl+Alt+Del | Reboot VM |',
+        '',
+        '### Tips',
+        '',
+        '- The VM has **no persistent storage** — all changes are lost on refresh.',
+        '- Networking is **not enabled** in this build.',
+        '- Use `vi` (BusyBox) for editing files in the 9p shared folder — changes',
+        '  are immediately visible on the host.',
+        '',
+        '## Technical Details',
+        '',
+        '| Component | Detail |',
+        '|-----------|--------|',
+        '| Emulator | v86 (x86 to WASM JIT) |',
+        '| Kernel | Linux 6.8.x (i686) |',
+        '| Userland | Buildroot + BusyBox |',
+        '| Editors | vi (BusyBox) |',
+        '| Shell | ash |',
+        '| Init | BusyBox init |',
+        '',
+        '## Links',
+        '',
+        '- [v86 on GitHub](https://github.com/copy/v86)',
+        '- [E. coli Tech](https://ecoli.tech)',
+        '- [Source code](https://github.com/mooooonk/web)',
+        ''
+      ].join('\n');
+
+      // ---- Hide loading overlay when VM starts ----
+      function hideOverlay() {
+        if (overlay && overlay.style.display !== 'none') {
+          overlay.classList.add('fade-out');
+          setTimeout(function () {
+            overlay.style.display = 'none';
+          }, 600);
+        }
+      }
+
+      // ---- Inject README.md into 9p filesystem ----
+      async function injectReadme(emulator, retries) {
+        retries = retries || 15;
+        for (var i = 0; i < retries; i++) {
+          if (emulator.fs9p) {
+            try {
+              var data = new TextEncoder().encode(README_CONTENT);
+              await emulator.create_file('/README.md', data);
+              console.log('[ecoli] README.md injected into 9p filesystem');
+              return;
+            } catch (e) {
+              console.warn('[ecoli] create_file attempt', i + 1, 'failed:', e);
+            }
+          }
+          await new Promise(function (r) { return setTimeout(r, 1000); });
+        }
+        console.warn('[ecoli] Could not inject README: 9p filesystem not ready');
+      }
+
+      // ---- Create emulator ----
+      var emulator;
+
+      // Guard: V86 not loaded
+      if (typeof V86 === 'undefined') {
+        if (overlay) {
+          overlay.innerHTML = '<div class="error">' +
+            '<p>⚠️ Failed to load the VM engine</p>' +
+            '<p class="hint">The v86 library could not be loaded from CDN. Check your network connection.</p>' +
+            '</div>';
+        }
+        return;
+      }
+
+      try {
+        emulator = new V86({
+          screen_container: container,
+          bios:      { url: BIOS_URL },
+          vga_bios:  { url: VGA_BIOS_URL },
+          bzimage:   { url: BZIMAGE_URL },
+          wasm_path: 'https://cdn.jsdelivr.net/npm/v86@latest/build/v86.wasm',
+          memory_size: 64 * 1024 * 1024,
+          vga_memory_size: 2 * 1024 * 1024,
+          autostart: true,
+          filesystem: {},
+        });
+
+        // Inject README after a short delay (let the emulator initialise)
+        setTimeout(function () {
+          injectReadme(emulator);
+        }, 2000);
+
+        // Hide the loading overlay — poll until terminal has content
+        var hideCheck = setInterval(function () {
+          var textDiv = container && container.querySelector('div[style*="white-space"]');
+          if (textDiv && textDiv.textContent.trim().length > 20) {
+            hideOverlay();
+            clearInterval(hideCheck);
+          }
+        }, 500);
+
+        // Fallback: hide overlay after 30 s regardless
+        setTimeout(hideOverlay, 30000);
+
+      } catch (err) {
+        console.error('[ecoli] V86 initialization failed:', err);
+        if (overlay) {
+          overlay.innerHTML = '<div class="error">' +
+            '<p>⚠️ Failed to initialise the VM</p>' +
+            '<p class="hint">' + err.message + '</p>' +
+            '</div>';
+        }
+      }
+
+      // ---- Reset ----
+      resetBtn && resetBtn.addEventListener('click', function () {
+        if (emulator) {
+          try { emulator.restart(); } catch (e) { location.reload(); }
+        }
+      });
+
+    })();
+  </script>
 </body>
 </html>
