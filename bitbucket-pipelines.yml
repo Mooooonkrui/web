@@ -1,0 +1,26 @@
+image: node:20
+
+definitions:
+  caches:
+    pnpm: ~/.local/share/pnpm/store
+
+pipelines:
+  default:
+    - step:
+        name: Build & Deploy
+        deployment: production
+        caches:
+          - pnpm
+        script:
+          # Enable pnpm via corepack
+          - corepack enable
+          - corepack prepare pnpm@latest --activate
+
+          # Install dependencies (uses lockfile)
+          - pnpm install --frozen-lockfile
+
+          # Build all sites (turbo runs in parallel)
+          - pnpm turbo build
+
+          # Deploy all sites to Cloudflare Pages
+          - pnpm turbo deploy
